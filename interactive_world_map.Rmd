@@ -1,0 +1,217 @@
+---
+title: "World.Population.Interactive.Map"
+author: "Sadeq-Rezai"
+date: "2024-02-9"
+output: 
+  prettydoc::html_pretty:
+  theme: cayman
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = 'center',
+  out.width = "100%")
+```
+
+```{r ,echo=TRUE, message=FALSE , include=TRUE}
+### Install and Load libraries--------------------------------------------------
+
+
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("rnaturalearthdata")) install.packages("rnaturalearthdata")
+if (!require("mapview")) install.packages("mapview")
+if (!require("sf")) install.packages("sf")
+if (!require("leafsync")) install.packages("leafsync")
+if (!require("leaflet.extras2")) install.packages("leaflet.extras2")
+if (!require("countrycode")) install.packages("countrycode")
+
+library(tidyverse) # data wrangling and viz ecosystem
+library(rnaturalearth) # Access Natural Earth dataset
+library(mapview) # Create Interactive Maps easily
+library(sf) # mapping with Simple Feature
+library(leaflet) # interactive maps
+library(leafsync) # plugin for leaflet
+
+```
+
+```{r ,echo=TRUE, results='hide', include=TRUE, warning=FALSE}
+### Cleaning Data---------------------------------------------------------------
+
+
+df <- read.csv("D:/it proj/portfolio1/population-and-demography.csv")
+print(lapply(df, class))
+
+colnames(df) <- make.names(colnames(df))
+
+hfa_sf <- ne_countries(scale = "medium", returnclass = "sf")
+
+#(RENAMING)
+df <- df %>% mutate(
+  Country.name = case_match(Country.name,
+                            "United States" ~ "United States of America",
+                            "Democratic Republic of Congo" ~
+                              "Democratic Republic of the Congo",
+                            "Tanzania" ~ "United Republic of Tanzania",
+                            "Congo" ~ "Republic of Congo",
+                            "Cote d'Ivoire" ~ "Ivory Coast",
+                            "Czechia" ~ "Czech Republic",
+                            .default = Country.name))
+
+
+#(CLEANING AND SYNCING THE MAP)
+hfa_map <- df %>% 
+  filter(!Country.name %in% c("world",
+                              "Less developed regions",
+                              "Less developed regions, excluding China", 
+                              "Less developed regions,
+                              excluding least developed countries", 
+                              "Lower-middle-income countries",
+                              "Asia (UN)",
+                              "Africa (UN)",
+                              "Least developed countries",
+                              "Upper-middle-income countries",
+                              "Low-income countries",
+                              "Land-locked developing countries (LLDC)",
+                              "High-income countries",
+                              "More developed regions",
+                              "Latin America and the Caribbean (UN)",
+                              "Europe (UN)",
+                              "Small island developing states (SIDS)")) %>% 
+  mutate(Country.name = str_trim(Country.name)) %>%
+  mutate(Percentage.Under.25 = Population.under.the.age.of.25/Population*100)%>% 
+  left_join(hfa_sf, by = c("Country.name" = "sovereignt")) %>% 
+  sf::st_as_sf()
+
+
+#(MAKING 4 CATEGORIES)
+hfa_map <- hfa_map %>%
+  mutate(Population.Above.60 = hfa_map$Population.aged.60.to.69.years+
+           hfa_map$Population.aged.70.to.79.years+
+           hfa_map$Population.aged.80.to.89.years+
+           hfa_map$Population.aged.90.to.99.years+
+           hfa_map$Population.older.than.100.years) %>% 
+  mutate(Percentage.Above.60 = round(Population.Above.60/Population*100, 1)) %>% 
+  mutate(Population.40.to.59 = hfa_map$Population.aged.40.to.49.years+
+           hfa_map$Population.aged.50.to.59.years) %>% 
+  mutate(Percentage.40.to.59 = round(Population.40.to.59/Population*100, 1)) %>%
+  mutate(Population.20.to.39 = hfa_map$Population.aged.20.to.29.years+
+           hfa_map$Population.aged.30.to.39.years) %>% 
+  mutate(Percentage.20.to.39 = round(Population.20.to.39/Population*100, 1)) %>% 
+  mutate(Population.Below.20 = hfa_map$Population.at.age.1+
+           hfa_map$Population.aged.1.to.4.years+
+           hfa_map$Population.aged.5.to.9.years+
+           hfa_map$Population.aged.10.to.14.years+
+           hfa_map$Population.aged.15.to.19.years) %>% 
+  mutate(Percentage.Below.20 = round(Population.Below.20/Population*100, 1))
+
+```
+
+
+
+```{r pressure, echo=TRUE}
+### Customizing Data and Creating Maps------------------------------------------
+
+
+cols<- c("#F0F9E8", "#CCEBC5", "#A8DDB5", "#7BCCC4", "#4EB3D3"
+         , "#2B8CBE", "#0868AC", "#084081")
+breaks <- c(1e6, 5e6, 10e6, 50e6, 100e6, 500e6, 1000e6, 1500e6)
+new.breaks <- c(1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+
+## Youth Population in Different Countries______________________________________
+
+numbers.of.youngs <- hfa_map %>% 
+  filter(Year=="2021") %>% 
+  select(Country.name,Population.under.the.age.of.25, Population, Year)
+
+Youth.num <- mapview(numbers.of.youngs ,zcol = "Population.under.the.age.of.25",
+          layer.name = "Population under age 25 in 2021",
+          col.regions = cols, at = breaks, crs = "+proj=robin")
+
+# Compare with The Past---
+
+numbers.of.youngs.old <- hfa_map %>% 
+  filter(Year=="1950") %>% 
+  select(Country.name,Population.under.the.age.of.25, Population, Year)
+
+Youth.num.old <-mapview(numbers.of.youngs.old,zcol =
+                          "Population.under.the.age.of.25",
+          layer.name = "Population under age 25 in 1950",
+          col.regions = cols, at = breaks, crs = "+proj=robin")
+
+Youth.num | Youth.num.old
+
+
+## Youth Percentage in Different Countries______________________________________
+
+percentage.of.youngs <- hfa_map %>% 
+  filter(Year=="2021") %>% 
+  select(Country.name,Percentage.Under.25, Population, Year)
+
+Youth.perc <- mapview(percentage.of.youngs ,zcol = "Percentage.Under.25",
+                      at = new.breaks,layer.name = "Age Under 25 in % (2021)",
+                      crs = "+proj=robin")
+
+# Compare with The Past---
+
+percentage.of.youngs.old <- hfa_map %>% 
+  filter(Year=="1950") %>% 
+  select(Country.name,Percentage.Under.25, Population, Year)
+
+Youth.perc.old <-mapview(percentage.of.youngs.old ,zcol = "Percentage.Under.25",
+                         at =new.breaks,layer.name = "Age Under 25 in % (1950)",
+                         crs = "+proj=robin")
+
+Youth.perc | Youth.perc.old
+
+
+## Elderly percentage and Population in Different countries_____________________
+
+
+Eldery.new <- hfa_map %>% 
+  filter(Year == "2021") %>% 
+  select(Country.name,Population,Population.Above.60,Percentage.Above.60, Year)
+
+Elderly.perc <- mapview(Eldery.new, zcol = "Percentage.Above.60",at =new.breaks,
+                        layer.name = "Age Above 60 in % (2021)",
+                        crs = "+proj=robin")
+
+# Compare with The Past---
+
+Eldery.old <- hfa_map %>% 
+  filter(Year == "1950") %>% 
+  select(Country.name,Population,Population.Above.60,Percentage.Above.60, Year)
+
+Elderly.perc.old<-mapview(Eldery.old, zcol = "Percentage.Above.60",
+                          at=new.breaks,layer.name = "Age Above 60 in % (1950)",
+                          crs = "+proj=robin")
+
+Elderly.perc | Youth.perc
+
+
+## Compare of four different categories of ages_________________________________
+
+four.categories <- hfa_map %>% 
+  filter(Year == "2021") %>% 
+  select(Country.name,Population, Population.Below.20, Population.20.to.39,
+         Population.40.to.59, Population.Above.60,
+         Percentage.Below.20, Percentage.20.to.39, Percentage.40.to.59,
+         Percentage.Above.60, Year)
+
+leafsync::sync(
+    mapview(four.categories, zcol = "Percentage.Below.20", at = new.breaks,
+            layer.name = "Age under 20 in %(2021)", crs = "+proj=robin"),
+    mapview(four.categories, zcol = "Percentage.20.to.39", at = new.breaks,
+            layer.name = "Age 20.to.39 in %(2021)", crs = "+proj=robin"),
+    mapview(four.categories, zcol = "Percentage.40.to.59", at = new.breaks,
+            layer.name = "Age 40.to.59 in %(2021)", crs = "+proj=robin"),
+    mapview(four.categories, zcol = "Percentage.Above.60", at = new.breaks,
+            layer.name = "Age over 60 in %(2021)", crs = "+proj=robin")
+)
+
+
+```
+
+Data Source: https://ourworldindata.org/population-growth#explore-data-poverty
+
+
